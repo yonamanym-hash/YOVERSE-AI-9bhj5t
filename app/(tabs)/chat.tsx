@@ -1,7 +1,7 @@
-// Powered by OnSpace.AI
+// Powered by OnSpace.AI - Yoverse Chat Interface
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, TextInput, Pressable, FlatList,
+  View, Text, TextInput, Pressable, FlatList, ScrollView,
   StyleSheet, KeyboardAvoidingView, Platform, Modal, ActivityIndicator, Alert, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,8 +9,8 @@ import { useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, FontWeight, Radius, Shadow } from '@/constants/theme';
-import { ChatBubble } from '@/components/feature/ChatBubble';
 import { TypingIndicator } from '@/components/feature/TypingIndicator';
 import { useChat, Message } from '@/hooks/useChat';
 import { AI_MODELS } from '@/services/aiService';
@@ -18,6 +18,29 @@ import {
   startRecording, stopRecording, cancelRecording,
   transcribeAudio, speakText, stopSpeaking,
 } from '@/services/voiceService';
+
+// ── Rich Media Types ────────────────────────────────────────────────────────
+type RichMediaType = 'text' | 'builder' | 'fashion' | 'video';
+
+interface RichMessage extends Message {
+  mediaType?: RichMediaType;
+  builderData?: {
+    html: string;
+    css: string;
+    title: string;
+  };
+  fashionData?: {
+    outfits: Array<{ title: string; description: string }>;
+    poses: Array<{ angle: string; description: string }>;
+  };
+  videoData?: {
+    prompt: string;
+    duration: string;
+    aspect: string;
+    status: 'generating' | 'complete' | 'queued';
+    progress: number;
+  };
+}
 
 // ── Voice Wave Animation ────────────────────────────────────────────────────
 function VoiceWave({ isActive }: { isActive: boolean }) {
@@ -56,6 +79,559 @@ const waveStyles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 28 },
   bar: { width: 4, height: 28, borderRadius: 2, backgroundColor: Colors.primary },
 });
+
+// ── Progress Ring Component ─────────────────────────────────────────────────
+function ProgressRing({ progress, size = 48 }: { progress: number; size?: number }) {
+  const rotation = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    const spin = Animated.loop(
+      Animated.timing(rotation, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true,
+      })
+    );
+    spin.start();
+    return () => spin.stop();
+  }, []);
+
+  const rotate = rotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  return (
+    <Animated.View style={[{ width: size, height: size, transform: [{ rotate }] }]}>
+      <View style={[progressStyles.ring, { width: size, height: size, borderRadius: size / 2 }]}>
+        <View style={[progressStyles.inner, { width: size - 8, height: size - 8, borderRadius: (size - 8) / 2 }]}>
+          <Text style={progressStyles.text}>{progress}%</Text>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+const progressStyles = StyleSheet.create({
+  ring: {
+    borderWidth: 3,
+    borderColor: Colors.primary,
+    borderTopColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inner: {
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  text: {
+    fontSize: 11,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
+  },
+});
+
+// ── Standard Text Message Block ─────────────────────────────────────────────
+function TextMessageBlock({ message, isUser }: { message: RichMessage; isUser: boolean }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View style={[styles.messageBlock, isUser ? styles.userBlock : styles.aiBlock, { opacity: fadeAnim }]}>
+      {!isUser && (
+        <View style={styles.aiHeader}>
+          <LinearGradient
+            colors={['rgba(255,215,0,0.2)', 'rgba(255,215,0,0.05)']}
+            style={styles.aiAvatar}
+          >
+            <Text style={styles.aiAvatarText}>Y</Text>
+          </LinearGradient>
+          <View>
+            <Text style={styles.aiName}>Yoverse</Text>
+            <Text style={styles.aiRole}>AI Assistant</Text>
+          </View>
+        </View>
+      )}
+      <View style={[styles.textBubble, isUser ? styles.userBubble : styles.aiBubble]}>
+        <Text style={[styles.messageText, isUser && styles.userText]}>{message.text}</Text>
+        {message.isStreaming && <StreamCursor />}
+      </View>
+      <Text style={[styles.timestamp, isUser && styles.timestampUser]}>
+        {formatTime(message.timestamp)}
+      </Text>
+    </Animated.View>
+  );
+}
+
+// ── Builder Card Block (HTML/CSS Preview) ───────────────────────────────────
+function BuilderCardBlock({ message }: { message: RichMessage }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [expanded, setExpanded] = useState(false);
+  
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const data = message.builderData || {
+    title: 'Component Preview',
+    html: '<div class="card">Hello World</div>',
+    css: '.card { padding: 20px; }',
+  };
+
+  return (
+    <Animated.View style={[styles.messageBlock, styles.aiBlock, { opacity: fadeAnim }]}>
+      <View style={styles.aiHeader}>
+        <LinearGradient
+          colors={['rgba(59,130,246,0.3)', 'rgba(59,130,246,0.1)']}
+          style={[styles.aiAvatar, { borderColor: '#3B82F6' }]}
+        >
+          <MaterialIcons name="code" size={18} color="#3B82F6" />
+        </LinearGradient>
+        <View>
+          <Text style={styles.aiName}>Builder</Text>
+          <Text style={styles.aiRole}>Code Generator</Text>
+        </View>
+        <View style={styles.blockBadge}>
+          <MaterialIcons name="developer-mode" size={12} color={Colors.primary} />
+          <Text style={styles.blockBadgeText}>Preview</Text>
+        </View>
+      </View>
+      
+      <View style={styles.builderCard}>
+        <LinearGradient
+          colors={['#1a1a2e', '#16213e']}
+          style={styles.builderPreview}
+        >
+          <View style={styles.browserBar}>
+            <View style={styles.browserDots}>
+              <View style={[styles.browserDot, { backgroundColor: '#EF4444' }]} />
+              <View style={[styles.browserDot, { backgroundColor: '#F59E0B' }]} />
+              <View style={[styles.browserDot, { backgroundColor: '#22C55E' }]} />
+            </View>
+            <View style={styles.browserUrl}>
+              <Text style={styles.browserUrlText}>localhost:3000</Text>
+            </View>
+          </View>
+          <View style={styles.previewContent}>
+            <View style={styles.mockComponent}>
+              <Text style={styles.mockTitle}>{data.title}</Text>
+              <View style={styles.mockButton}>
+                <Text style={styles.mockButtonText}>Click Me</Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+        
+        <Pressable 
+          style={styles.codeToggle}
+          onPress={() => setExpanded(!expanded)}
+        >
+          <MaterialIcons name={expanded ? 'expand-less' : 'expand-more'} size={20} color={Colors.textSecondary} />
+          <Text style={styles.codeToggleText}>{expanded ? 'Hide Code' : 'View Code'}</Text>
+        </Pressable>
+        
+        {expanded && (
+          <View style={styles.codeContainer}>
+            <View style={styles.codeTab}>
+              <Text style={styles.codeTabActive}>HTML</Text>
+              <Text style={styles.codeTabInactive}>CSS</Text>
+            </View>
+            <ScrollView style={styles.codeScroll} horizontal>
+              <Text style={styles.codeText}>{data.html}</Text>
+            </ScrollView>
+          </View>
+        )}
+        
+        <View style={styles.builderActions}>
+          <Pressable style={styles.builderAction}>
+            <MaterialIcons name="content-copy" size={16} color={Colors.textSecondary} />
+            <Text style={styles.builderActionText}>Copy</Text>
+          </Pressable>
+          <Pressable style={styles.builderAction}>
+            <MaterialIcons name="edit" size={16} color={Colors.textSecondary} />
+            <Text style={styles.builderActionText}>Edit</Text>
+          </Pressable>
+          <Pressable style={[styles.builderAction, styles.builderActionPrimary]}>
+            <MaterialIcons name="open-in-new" size={16} color={Colors.textInverse} />
+            <Text style={styles.builderActionTextPrimary}>Deploy</Text>
+          </Pressable>
+        </View>
+      </View>
+      
+      <Text style={styles.timestamp}>{formatTime(message.timestamp)}</Text>
+    </Animated.View>
+  );
+}
+
+// ── Fashion & Pose Block ────────────────────────────────────────────────────
+function FashionPoseBlock({ message }: { message: RichMessage }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const data = message.fashionData || {
+    outfits: [
+      { title: 'Slim Fit Blazer', description: 'Navy blue tailored blazer' },
+      { title: 'Fitted Trousers', description: 'Charcoal slim-fit pants' },
+      { title: 'Oxford Shirt', description: 'White cotton oxford' },
+    ],
+    poses: [
+      { angle: 'Front View', description: 'Professional stance, hands relaxed' },
+      { angle: '3/4 Angle', description: 'Slight turn, confident posture' },
+      { angle: 'Profile Shot', description: 'Side profile, chin elevated' },
+    ],
+  };
+
+  return (
+    <Animated.View style={[styles.messageBlock, styles.aiBlock, { opacity: fadeAnim }]}>
+      <View style={styles.aiHeader}>
+        <LinearGradient
+          colors={['rgba(236,72,153,0.3)', 'rgba(236,72,153,0.1)']}
+          style={[styles.aiAvatar, { borderColor: '#EC4899' }]}
+        >
+          <MaterialIcons name="style" size={18} color="#EC4899" />
+        </LinearGradient>
+        <View>
+          <Text style={styles.aiName}>Style Studio</Text>
+          <Text style={styles.aiRole}>Fashion + Poses</Text>
+        </View>
+        <View style={[styles.blockBadge, { backgroundColor: 'rgba(236,72,153,0.15)', borderColor: 'rgba(236,72,153,0.3)' }]}>
+          <MaterialIcons name="camera-alt" size={12} color="#EC4899" />
+          <Text style={[styles.blockBadgeText, { color: '#EC4899' }]}>Ready</Text>
+        </View>
+      </View>
+      
+      <View style={styles.fashionCard}>
+        {/* Outfit Section */}
+        <Text style={styles.fashionSectionTitle}>Outfit Recommendations</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.fashionScroll}>
+          {data.outfits.map((outfit, idx) => (
+            <View key={idx} style={styles.fashionItem}>
+              <LinearGradient
+                colors={['#1f1f2e', '#16162a']}
+                style={styles.fashionImagePlaceholder}
+              >
+                <MaterialIcons name="checkroom" size={32} color={Colors.textMuted} />
+              </LinearGradient>
+              <Text style={styles.fashionItemTitle}>{outfit.title}</Text>
+              <Text style={styles.fashionItemDesc}>{outfit.description}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        
+        {/* Pose Section */}
+        <Text style={[styles.fashionSectionTitle, { marginTop: 16 }]}>Camera Angles</Text>
+        <View style={styles.poseGrid}>
+          {data.poses.map((pose, idx) => (
+            <View key={idx} style={styles.poseItem}>
+              <LinearGradient
+                colors={['#1a1a2e', '#0f0f1a']}
+                style={styles.poseImagePlaceholder}
+              >
+                <MaterialIcons name="person" size={28} color={Colors.textMuted} />
+                <View style={styles.poseAngleBadge}>
+                  <Text style={styles.poseAngleText}>{pose.angle}</Text>
+                </View>
+              </LinearGradient>
+              <Text style={styles.poseDesc}>{pose.description}</Text>
+            </View>
+          ))}
+        </View>
+        
+        <View style={styles.fashionActions}>
+          <Pressable style={styles.fashionAction}>
+            <MaterialIcons name="refresh" size={16} color={Colors.textSecondary} />
+            <Text style={styles.fashionActionText}>Regenerate</Text>
+          </Pressable>
+          <Pressable style={[styles.fashionAction, styles.fashionActionPrimary]}>
+            <MaterialIcons name="photo-camera" size={16} color={Colors.textInverse} />
+            <Text style={styles.fashionActionTextPrimary}>Start Shoot</Text>
+          </Pressable>
+        </View>
+      </View>
+      
+      <Text style={styles.timestamp}>{formatTime(message.timestamp)}</Text>
+    </Animated.View>
+  );
+}
+
+// ── Video Generator Block ───────────────────────────────────────────────────
+function VideoGeneratorBlock({ message }: { message: RichMessage }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [selectedDuration, setSelectedDuration] = useState('30s');
+  const [selectedAspect, setSelectedAspect] = useState('16:9');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const durations = ['5s', '30s', '1m', '5m', '10m'];
+  const aspects = [
+    { ratio: '16:9', label: 'Landscape', icon: 'crop-landscape' },
+    { ratio: '9:16', label: 'Portrait', icon: 'crop-portrait' },
+    { ratio: '1:1', label: 'Square', icon: 'crop-square' },
+    { ratio: '4:5', label: 'Social', icon: 'crop-din' },
+  ];
+
+  const handleGenerate = () => {
+    setIsGenerating(true);
+    setProgress(0);
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setIsGenerating(false);
+          return 100;
+        }
+        return prev + Math.random() * 15;
+      });
+    }, 500);
+  };
+
+  const data = message.videoData || {
+    prompt: message.text || 'Generate a cinematic video...',
+    status: 'queued',
+    progress: 0,
+  };
+
+  return (
+    <Animated.View style={[styles.messageBlock, styles.aiBlock, { opacity: fadeAnim }]}>
+      <View style={styles.aiHeader}>
+        <LinearGradient
+          colors={['rgba(139,92,246,0.3)', 'rgba(139,92,246,0.1)']}
+          style={[styles.aiAvatar, { borderColor: '#8B5CF6' }]}
+        >
+          <MaterialIcons name="videocam" size={18} color="#8B5CF6" />
+        </LinearGradient>
+        <View>
+          <Text style={styles.aiName}>Video Studio</Text>
+          <Text style={styles.aiRole}>AI Generator</Text>
+        </View>
+        <View style={[styles.blockBadge, { backgroundColor: 'rgba(139,92,246,0.15)', borderColor: 'rgba(139,92,246,0.3)' }]}>
+          <View style={[styles.liveDot, { backgroundColor: '#8B5CF6' }]} />
+          <Text style={[styles.blockBadgeText, { color: '#8B5CF6' }]}>
+            {isGenerating ? 'Generating' : 'Ready'}
+          </Text>
+        </View>
+      </View>
+      
+      <View style={styles.videoCard}>
+        {/* Video Preview Screen */}
+        <LinearGradient
+          colors={['#0a0a0f', '#111118']}
+          style={styles.videoPreview}
+        >
+          {isGenerating ? (
+            <View style={styles.generatingOverlay}>
+              <ProgressRing progress={Math.min(Math.round(progress), 100)} size={64} />
+              <Text style={styles.generatingText}>Creating your video...</Text>
+              <Text style={styles.generatingSubtext}>
+                {progress < 25 ? 'Analyzing prompt...' :
+                 progress < 50 ? 'Generating frames...' :
+                 progress < 75 ? 'Adding effects...' : 'Finalizing...'}
+              </Text>
+            </View>
+          ) : progress >= 100 ? (
+            <View style={styles.videoComplete}>
+              <MaterialIcons name="play-circle-filled" size={64} color={Colors.primary} />
+              <Text style={styles.videoCompleteText}>Video Ready</Text>
+            </View>
+          ) : (
+            <View style={styles.videoPlaceholder}>
+              <MaterialIcons name="movie-creation" size={48} color={Colors.textMuted} />
+              <Text style={styles.videoPlaceholderText}>Preview will appear here</Text>
+            </View>
+          )}
+          
+          {/* Aspect Ratio Indicator */}
+          <View style={styles.aspectIndicator}>
+            <Text style={styles.aspectIndicatorText}>{selectedAspect}</Text>
+          </View>
+        </LinearGradient>
+        
+        {/* Duration Selector */}
+        <View style={styles.videoControls}>
+          <Text style={styles.videoControlLabel}>Duration</Text>
+          <View style={styles.durationRow}>
+            {durations.map(dur => (
+              <Pressable
+                key={dur}
+                style={[
+                  styles.durationChip,
+                  selectedDuration === dur && styles.durationChipActive,
+                ]}
+                onPress={() => setSelectedDuration(dur)}
+              >
+                <Text style={[
+                  styles.durationText,
+                  selectedDuration === dur && styles.durationTextActive,
+                ]}>
+                  {dur}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        
+        {/* Aspect Ratio Selector */}
+        <View style={styles.videoControls}>
+          <Text style={styles.videoControlLabel}>Aspect Ratio</Text>
+          <View style={styles.aspectRow}>
+            {aspects.map(asp => (
+              <Pressable
+                key={asp.ratio}
+                style={[
+                  styles.aspectChip,
+                  selectedAspect === asp.ratio && styles.aspectChipActive,
+                ]}
+                onPress={() => setSelectedAspect(asp.ratio)}
+              >
+                <MaterialIcons 
+                  name={asp.icon as any} 
+                  size={18} 
+                  color={selectedAspect === asp.ratio ? Colors.primary : Colors.textMuted} 
+                />
+                <Text style={[
+                  styles.aspectLabel,
+                  selectedAspect === asp.ratio && styles.aspectLabelActive,
+                ]}>
+                  {asp.ratio}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        
+        {/* Generate Button */}
+        <Pressable
+          style={[styles.generateButton, isGenerating && styles.generateButtonDisabled]}
+          onPress={handleGenerate}
+          disabled={isGenerating}
+        >
+          <LinearGradient
+            colors={isGenerating ? ['#333', '#222'] : [Colors.primary, Colors.primaryDim]}
+            style={styles.generateButtonGradient}
+          >
+            {isGenerating ? (
+              <ActivityIndicator size="small" color={Colors.textMuted} />
+            ) : (
+              <>
+                <MaterialIcons name="auto-awesome" size={20} color={Colors.textInverse} />
+                <Text style={styles.generateButtonText}>Generate Video</Text>
+              </>
+            )}
+          </LinearGradient>
+        </Pressable>
+        
+        {/* Timeline */}
+        {isGenerating && (
+          <View style={styles.timeline}>
+            {['Analyzing', 'Rendering', 'Enhancing', 'Finalizing'].map((stage, idx) => (
+              <View key={stage} style={styles.timelineStep}>
+                <View style={[
+                  styles.timelineDot,
+                  progress > (idx * 25) && styles.timelineDotActive,
+                ]} />
+                <Text style={[
+                  styles.timelineText,
+                  progress > (idx * 25) && styles.timelineTextActive,
+                ]}>
+                  {stage}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+      
+      <Text style={styles.timestamp}>{formatTime(message.timestamp)}</Text>
+    </Animated.View>
+  );
+}
+
+// ── Stream Cursor ───────────────────────────────────────────────────────────
+function StreamCursor() {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+  return <Animated.Text style={[styles.cursor, { opacity }]}>|</Animated.Text>;
+}
+
+// ── Helper Functions ────────────────────────────────────────────────────────
+function formatTime(date: Date): string {
+  const h = date.getHours().toString().padStart(2, '0');
+  const m = date.getMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function detectMediaType(text: string): RichMediaType {
+  const lower = text.toLowerCase();
+  if (lower.includes('build') || lower.includes('code') || lower.includes('html') || lower.includes('component') || lower.includes('website')) {
+    return 'builder';
+  }
+  if (lower.includes('fashion') || lower.includes('outfit') || lower.includes('pose') || lower.includes('style') || lower.includes('wear')) {
+    return 'fashion';
+  }
+  if (lower.includes('video') || lower.includes('generate video') || lower.includes('cinematic') || lower.includes('animation')) {
+    return 'video';
+  }
+  return 'text';
+}
+
+// ── Rich Message Renderer ───────────────────────────────────────────────────
+function RichMessageBlock({ message }: { message: RichMessage }) {
+  const isUser = message.role === 'user';
+  
+  // Determine media type from message content or explicit type
+  const mediaType = message.mediaType || (isUser ? 'text' : detectMediaType(message.text));
+  
+  if (isUser) {
+    return <TextMessageBlock message={message} isUser={true} />;
+  }
+  
+  switch (mediaType) {
+    case 'builder':
+      return <BuilderCardBlock message={message} />;
+    case 'fashion':
+      return <FashionPoseBlock message={message} />;
+    case 'video':
+      return <VideoGeneratorBlock message={message} />;
+    default:
+      return <TextMessageBlock message={message} isUser={false} />;
+  }
+}
 
 // ── Main Chat Screen ────────────────────────────────────────────────────────
 export default function ChatScreen() {
@@ -163,33 +739,34 @@ export default function ChatScreen() {
     else { setVoiceSpeakEnabled((v) => !v); }
   };
 
-  const renderItem = ({ item }: { item: Message }) => <ChatBubble message={item} />;
+  const renderItem = ({ item }: { item: Message }) => <RichMessageBlock message={item as RichMessage} />;
 
   const currentModelInfo = AI_MODELS.find((m) => m.id === activeModel) ?? AI_MODELS[0];
 
-  const CAPABILITY_CHIPS = [
-    { emoji: '💻', label: 'Write Code' },
-    { emoji: '📊', label: 'XAUUSD Analysis' },
-    { emoji: '✍️', label: 'Write Essay' },
-    { emoji: '🔢', label: 'Solve Math' },
-    { emoji: '🌍', label: 'Translate' },
-    { emoji: '🏦', label: 'Prop Firm Tips' },
-    { emoji: '🎨', label: 'Photo Editing' },
-    { emoji: '💼', label: 'Business Plan' },
+  const QUICK_PROMPTS = [
+    { icon: 'code', label: 'Build a component', color: '#3B82F6' },
+    { icon: 'style', label: 'Style recommendation', color: '#EC4899' },
+    { icon: 'videocam', label: 'Generate video', color: '#8B5CF6' },
+    { icon: 'auto-awesome', label: 'Surprise me', color: '#F59E0B' },
   ];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
-      <View style={styles.header}>
+      <LinearGradient
+        colors={['rgba(255,215,0,0.05)', 'transparent']}
+        style={styles.header}
+      >
         <View style={styles.headerLeft}>
-          <View style={[styles.avatarRing, isSpeaking && styles.avatarRingSpeaking]}>
-            <Text style={styles.avatarText}>DT</Text>
+          <LinearGradient
+            colors={['rgba(255,215,0,0.2)', 'rgba(255,215,0,0.05)']}
+            style={[styles.avatarRing, isSpeaking && styles.avatarRingSpeaking]}
+          >
+            <Text style={styles.avatarText}>Y</Text>
             <View style={styles.onlineDot} />
-          </View>
+          </LinearGradient>
           <View>
-            <Text style={styles.headerName}>Digital Twin</Text>
-            {/* Tappable model badge */}
+            <Text style={styles.headerName}>Yoverse</Text>
             <Pressable
               onPress={() => setShowModelPicker(true)}
               hitSlop={6}
@@ -197,7 +774,7 @@ export default function ChatScreen() {
             >
               <View style={[styles.modelDotSmall, { backgroundColor: currentModelInfo.color }]} />
               <Text style={styles.modelBadgeText}>
-                {isSpeaking ? '🔊 Speaking...' : isRecording ? '🎙️ Listening...' : currentModelInfo.label}
+                {isSpeaking ? 'Speaking...' : isRecording ? 'Listening...' : currentModelInfo.label}
               </Text>
               {!isSpeaking && !isRecording && (
                 <MaterialIcons name="keyboard-arrow-down" size={12} color={Colors.textMuted} />
@@ -228,14 +805,8 @@ export default function ChatScreen() {
           >
             <MaterialIcons name="delete-outline" size={20} color={Colors.textMuted} />
           </Pressable>
-          <Pressable
-            onPress={toggleLanguage}
-            style={({ pressed }) => [styles.langBtn, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.langText}>{language === 'en' ? '🇬🇧 EN' : '🇪🇹 AM'}</Text>
-          </Pressable>
         </View>
-      </View>
+      </LinearGradient>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -261,7 +832,7 @@ export default function ChatScreen() {
                   <View style={styles.historyBadge}>
                     <MaterialIcons name="history" size={12} color={Colors.textMuted} />
                     <Text style={styles.historyBadgeText}>
-                      {messages.length} messages · {currentModelInfo.label} + Voice
+                      {messages.length} messages - Chronological History (never deleted)
                     </Text>
                   </View>
                 ) : null
@@ -270,19 +841,26 @@ export default function ChatScreen() {
             />
 
             {messages.length <= 1 && !isLoading && (
-              <View style={styles.capabilityWrap}>
-                <Text style={styles.capabilityTitle}>🎙️ Tap mic to speak — or type anything:</Text>
-                <View style={styles.quickRow}>
-                  {CAPABILITY_CHIPS.map((p, i) => (
-                    <Pressable
-                      key={i}
-                      style={({ pressed }) => [styles.quickChip, pressed && { opacity: 0.7 }]}
-                      onPress={() => sendMessage(`Help me with: ${p.label}`)}
-                    >
-                      <Text style={styles.quickChipText}>{p.emoji} {p.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+              <View style={styles.welcomeWrap}>
+                <LinearGradient
+                  colors={['rgba(255,215,0,0.1)', 'transparent']}
+                  style={styles.welcomeGradient}
+                >
+                  <Text style={styles.welcomeTitle}>Welcome to Yoverse</Text>
+                  <Text style={styles.welcomeSubtitle}>Your unified AI workspace</Text>
+                  <View style={styles.quickRow}>
+                    {QUICK_PROMPTS.map((p, i) => (
+                      <Pressable
+                        key={i}
+                        style={({ pressed }) => [styles.quickChip, pressed && { opacity: 0.7 }]}
+                        onPress={() => sendMessage(p.label)}
+                      >
+                        <MaterialIcons name={p.icon as any} size={16} color={p.color} />
+                        <Text style={styles.quickChipText}>{p.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </LinearGradient>
               </View>
             )}
           </>
@@ -320,64 +898,71 @@ export default function ChatScreen() {
         ) : null}
 
         {/* Input Bar */}
-        <View style={styles.inputBar}>
-          <Pressable
-            onPress={handlePickImage}
-            hitSlop={4}
-            style={({ pressed }) => [styles.iconCircleBtn, pressed && { opacity: 0.7 }, attachedImage ? styles.attachBtnActive : null]}
-          >
-            <MaterialIcons name="image" size={22} color={attachedImage ? Colors.primary : Colors.textMuted} />
-          </Pressable>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.8)']}
+          style={styles.inputBarGradient}
+        >
+          <View style={styles.inputBar}>
+            <Pressable
+              onPress={handlePickImage}
+              hitSlop={4}
+              style={({ pressed }) => [styles.iconCircleBtn, pressed && { opacity: 0.7 }, attachedImage ? styles.attachBtnActive : null]}
+            >
+              <MaterialIcons name="add" size={22} color={attachedImage ? Colors.primary : Colors.textMuted} />
+            </Pressable>
 
-          <TextInput
-            style={styles.input}
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder={
-              isRecording ? 'Listening...' :
-              isTranscribing ? 'Processing voice...' :
-              language === 'en' ? 'Speak or type anything...' : 'ይናገሩ ወይም ይጻፉ...'
-            }
-            placeholderTextColor={Colors.textMuted}
-            multiline
-            maxLength={2000}
-            returnKeyType="default"
-            editable={isHistoryLoaded && !isRecording && !isTranscribing}
-          />
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={inputText}
+                onChangeText={setInputText}
+                placeholder={
+                  isRecording ? 'Listening...' :
+                  isTranscribing ? 'Processing voice...' :
+                  'Ask Yoverse anything...'
+                }
+                placeholderTextColor={Colors.textMuted}
+                multiline
+                maxLength={2000}
+                returnKeyType="default"
+                editable={isHistoryLoaded && !isRecording && !isTranscribing}
+              />
+            </View>
 
-          <Pressable
-            onPress={handleMicPress}
-            disabled={isTranscribing || isLoading || !isHistoryLoaded}
-            style={({ pressed }) => [
-              styles.micBtn,
-              isRecording && styles.micBtnActive,
-              isTranscribing && styles.micBtnTranscribing,
-              pressed && { opacity: 0.8 },
-            ]}
-          >
-            {isTranscribing ? (
-              <ActivityIndicator size="small" color={Colors.textInverse} />
-            ) : (
-              <MaterialIcons name={isRecording ? 'stop' : 'mic'} size={22} color={Colors.textInverse} />
-            )}
-          </Pressable>
+            <Pressable
+              onPress={handleMicPress}
+              disabled={isTranscribing || isLoading || !isHistoryLoaded}
+              style={({ pressed }) => [
+                styles.micBtn,
+                isRecording && styles.micBtnActive,
+                isTranscribing && styles.micBtnTranscribing,
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              {isTranscribing ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
+              ) : (
+                <MaterialIcons name={isRecording ? 'stop' : 'mic'} size={20} color={isRecording ? Colors.textPrimary : Colors.textMuted} />
+              )}
+            </Pressable>
 
-          <Pressable
-            onPress={handleSend}
-            disabled={(!inputText.trim() && !attachedImage) || isLoading || !isHistoryLoaded || isRecording}
-            style={({ pressed }) => [
-              styles.sendBtn,
-              ((!inputText.trim() && !attachedImage) || isLoading || !isHistoryLoaded || isRecording) && styles.sendBtnDisabled,
-              pressed && { opacity: 0.8 },
-            ]}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color={Colors.textInverse} />
-            ) : (
-              <MaterialIcons name="send" size={20} color={Colors.textInverse} />
-            )}
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={handleSend}
+              disabled={(!inputText.trim() && !attachedImage) || isLoading || !isHistoryLoaded || isRecording}
+              style={({ pressed }) => [
+                styles.sendBtn,
+                ((!inputText.trim() && !attachedImage) || isLoading || !isHistoryLoaded || isRecording) && styles.sendBtnDisabled,
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
+              ) : (
+                <MaterialIcons name="arrow-upward" size={20} color={Colors.textInverse} />
+              )}
+            </Pressable>
+          </View>
+        </LinearGradient>
       </KeyboardAvoidingView>
 
       {/* ── Model Picker Modal ── */}
@@ -392,7 +977,7 @@ export default function ChatScreen() {
             <View style={styles.pickerHandle} />
             <Text style={styles.pickerTitle}>Choose AI Model</Text>
             <Text style={styles.pickerSub}>
-              Switch between GPT-5.1, Grok-3, Gemini and more — all powered by OnSpace AI
+              Switch between GPT-5.1, Grok-3, Gemini and more
             </Text>
             {AI_MODELS.map((m) => {
               const active = activeModel === m.id;
@@ -435,7 +1020,7 @@ export default function ChatScreen() {
             </View>
             <Text style={styles.modalTitle}>Clear Chat History?</Text>
             <Text style={styles.modalBody}>
-              All {messages.length} messages will be permanently deleted. Your Digital Twin will start fresh.
+              All {messages.length} messages will be permanently deleted. Your Yoverse workspace will start fresh.
             </Text>
             <View style={styles.modalActions}>
               <Pressable
@@ -462,6 +1047,7 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
 
+  // ── Header ──
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -477,7 +1063,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.primaryGlow,
     borderWidth: 2,
     borderColor: Colors.primary,
     alignItems: 'center',
@@ -490,7 +1075,7 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 8,
   },
-  avatarText: { fontSize: 13, fontWeight: FontWeight.bold, color: Colors.primary },
+  avatarText: { fontSize: 16, fontWeight: FontWeight.bold, color: Colors.primary },
   onlineDot: {
     position: 'absolute',
     bottom: 1,
@@ -502,9 +1087,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.background,
   },
-  headerName: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
-
-  // Model badge (tappable)
+  headerName: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: Colors.textPrimary },
   modelBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -521,7 +1104,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontWeight: FontWeight.medium,
   },
-
   iconBtn: {
     width: 36,
     height: 36,
@@ -536,19 +1118,537 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     backgroundColor: Colors.primaryGlow,
   },
-  langBtn: {
+
+  // ── Message Blocks ──
+  messageBlock: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  userBlock: {
+    alignItems: 'flex-end',
+  },
+  aiBlock: {
+    alignItems: 'flex-start',
+  },
+  aiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  aiAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiAvatarText: { fontSize: 14, fontWeight: FontWeight.bold, color: Colors.primary },
+  aiName: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textPrimary },
+  aiRole: { fontSize: FontSize.xs, color: Colors.textMuted },
+  blockBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryGlow,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.2)',
+    marginLeft: 'auto',
+  },
+  blockBadgeText: {
+    fontSize: 10,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.success,
+  },
+  textBubble: {
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    maxWidth: '85%',
+  },
+  userBubble: {
+    backgroundColor: Colors.primary,
+    borderBottomRightRadius: 4,
+  },
+  aiBubble: {
     backgroundColor: Colors.surfaceElevated,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: Radius.full,
+    borderBottomLeftRadius: 4,
   },
-  langText: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: FontWeight.medium },
+  messageText: {
+    fontSize: FontSize.base,
+    lineHeight: 24,
+    color: Colors.textPrimary,
+  },
+  userText: {
+    color: Colors.textInverse,
+  },
+  timestamp: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 4,
+  },
+  timestampUser: {
+    textAlign: 'right',
+  },
+  cursor: {
+    fontSize: FontSize.base,
+    color: Colors.primary,
+  },
 
+  // ── Builder Card ──
+  builderCard: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    overflow: 'hidden',
+  },
+  builderPreview: {
+    padding: 0,
+  },
+  browserBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    gap: 12,
+  },
+  browserDots: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  browserDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  browserUrl: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  browserUrlText: {
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  previewContent: {
+    padding: Spacing.lg,
+    minHeight: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mockComponent: {
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  mockTitle: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  mockButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: Radius.sm,
+  },
+  mockButtonText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textInverse,
+  },
+  codeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+    gap: 4,
+  },
+  codeToggleText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  codeContainer: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+  },
+  codeTab: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
+  },
+  codeTabActive: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+  },
+  codeTabInactive: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  codeScroll: {
+    padding: Spacing.sm,
+    backgroundColor: '#0d1117',
+    maxHeight: 120,
+  },
+  codeText: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: '#e6edf3',
+    lineHeight: 18,
+  },
+  builderActions: {
+    flexDirection: 'row',
+    padding: Spacing.sm,
+    gap: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+  },
+  builderAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 6,
+  },
+  builderActionText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  builderActionPrimary: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  builderActionTextPrimary: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textInverse,
+  },
+
+  // ── Fashion Card ──
+  fashionCard: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: Spacing.md,
+  },
+  fashionSectionTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  fashionScroll: {
+    marginHorizontal: -Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+  },
+  fashionItem: {
+    width: 120,
+    marginRight: Spacing.sm,
+  },
+  fashionImagePlaceholder: {
+    width: 120,
+    height: 150,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  fashionItemTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  fashionItemDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  poseGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  poseItem: {
+    width: '31%',
+  },
+  poseImagePlaceholder: {
+    aspectRatio: 1,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    marginBottom: 4,
+  },
+  poseAngleBadge: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  poseAngleText: {
+    fontSize: 9,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    fontWeight: FontWeight.medium,
+  },
+  poseDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  fashionActions: {
+    flexDirection: 'row',
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  fashionAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 6,
+  },
+  fashionActionText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  fashionActionPrimary: {
+    backgroundColor: '#EC4899',
+    borderColor: '#EC4899',
+  },
+  fashionActionTextPrimary: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+
+  // ── Video Card ──
+  videoCard: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    overflow: 'hidden',
+  },
+  videoPreview: {
+    aspectRatio: 16 / 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  generatingOverlay: {
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  generatingText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+    marginTop: Spacing.sm,
+  },
+  generatingSubtext: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  videoComplete: {
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  videoCompleteText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
+  },
+  videoPlaceholder: {
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  videoPlaceholderText: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  aspectIndicator: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  aspectIndicatorText: {
+    fontSize: 10,
+    color: Colors.textPrimary,
+    fontWeight: FontWeight.semibold,
+  },
+  videoControls: {
+    padding: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.surfaceBorder,
+  },
+  videoControlLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: FontWeight.semibold,
+    marginBottom: Spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  durationChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  durationChipActive: {
+    backgroundColor: Colors.primaryGlow,
+    borderColor: Colors.primary,
+  },
+  durationText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: FontWeight.medium,
+  },
+  durationTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
+  },
+  aspectRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  aspectChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    gap: 4,
+  },
+  aspectChipActive: {
+    backgroundColor: Colors.primaryGlow,
+    borderColor: Colors.primary,
+  },
+  aspectLabel: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    fontWeight: FontWeight.medium,
+  },
+  aspectLabelActive: {
+    color: Colors.primary,
+  },
+  generateButton: {
+    margin: Spacing.md,
+    marginTop: 0,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+  },
+  generateButtonDisabled: {
+    opacity: 0.6,
+  },
+  generateButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: Spacing.sm,
+  },
+  generateButtonText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: Colors.textInverse,
+  },
+  timeline: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  timelineStep: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  timelineDotActive: {
+    backgroundColor: Colors.primary,
+  },
+  timelineText: {
+    fontSize: 9,
+    color: Colors.textMuted,
+  },
+  timelineTextActive: {
+    color: Colors.primary,
+    fontWeight: FontWeight.semibold,
+  },
+
+  // ── Loading & History ──
   loadingHistory: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
   loadingText: { fontSize: FontSize.sm, color: Colors.textMuted },
-
   historyBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -558,27 +1658,53 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   historyBadgeText: { fontSize: FontSize.xs, color: Colors.textMuted },
-  messagesList: { paddingTop: Spacing.sm, paddingBottom: Spacing.sm },
+  messagesList: { paddingTop: Spacing.sm, paddingBottom: 100 },
 
-  capabilityWrap: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm },
-  capabilityTitle: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: FontWeight.medium,
-    marginBottom: Spacing.sm,
-    textAlign: 'center',
+  // ── Welcome Screen ──
+  welcomeWrap: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.lg,
   },
-  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'center' },
+  welcomeGradient: {
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    alignItems: 'center',
+  },
+  welcomeTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  welcomeSubtitle: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    justifyContent: 'center',
+  },
   quickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.surfaceElevated,
     borderRadius: Radius.full,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    gap: 8,
   },
-  quickChipText: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: FontWeight.medium },
+  quickChipText: {
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: FontWeight.medium,
+  },
 
+  // ── Recording Bar ──
   recordingBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -596,6 +1722,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
+  // ── Attachment Preview ──
   attachPreview: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -614,26 +1741,34 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
+  // ── Input Bar ──
+  inputBarGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 20,
+  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.lg,
     gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.surfaceBorder,
     backgroundColor: Colors.background,
   },
   iconCircleBtn: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: Colors.surfaceElevated,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     alignItems: 'center', justifyContent: 'center',
   },
   attachBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryGlow },
-  input: {
+  inputWrapper: {
     flex: 1,
+  },
+  input: {
     backgroundColor: Colors.inputBg,
     borderWidth: 1,
     borderColor: Colors.inputBorder,
@@ -646,15 +1781,15 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   micBtn: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: Colors.surfaceElevated,
-    borderWidth: 1.5, borderColor: Colors.surfaceBorder,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
     alignItems: 'center', justifyContent: 'center',
   },
   micBtnActive: { backgroundColor: Colors.danger, borderColor: Colors.danger },
   micBtnTranscribing: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   sendBtn: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
