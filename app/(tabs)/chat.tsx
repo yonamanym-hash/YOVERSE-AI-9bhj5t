@@ -171,10 +171,12 @@ function TextMessageBlock({ message, isUser }: { message: RichMessage; isUser: b
   );
 }
 
-// ── Builder Card Block (HTML/CSS Preview) ───────────────────────────────────
+// ── Builder Card Block (LIVE HTML/CSS Preview) ──────────────────────────────
 function BuilderCardBlock({ message }: { message: RichMessage }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [expanded, setExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<'html' | 'css'>('html');
+  const [copied, setCopied] = useState(false);
   
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -185,10 +187,64 @@ function BuilderCardBlock({ message }: { message: RichMessage }) {
   }, []);
 
   const data = message.builderData || {
-    title: 'Component Preview',
-    html: '<div class="card">Hello World</div>',
-    css: '.card { padding: 20px; }',
+    title: 'Interactive Card Component',
+    html: `<div class="card">
+  <div class="card-header">
+    <span class="badge">NEW</span>
+    <h2>Welcome to Yoverse</h2>
+  </div>
+  <p class="description">Build amazing things with AI</p>
+  <button class="cta-btn" onclick="this.textContent='Clicked!'">
+    Get Started
+  </button>
+</div>`,
+    css: `.card {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid rgba(255,215,0,0.2);
+  font-family: system-ui, sans-serif;
+}
+.card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.badge { background: #FFD700; color: #000; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+h2 { color: #fff; margin: 0; font-size: 18px; }
+.description { color: #888; margin: 0 0 16px 0; font-size: 14px; }
+.cta-btn {
+  background: #FFD700; color: #000; border: none; padding: 12px 24px;
+  border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.2s;
+}
+.cta-btn:hover { transform: scale(1.05); background: #FFC107; }`,
   };
+
+  const handleCopy = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Generate the live HTML document for rendering
+  const liveHtmlDocument = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      background: transparent; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      min-height: 100%; 
+      padding: 16px;
+    }
+    ${data.css}
+  </style>
+</head>
+<body>
+  ${data.html}
+</body>
+</html>`;
 
   return (
     <Animated.View style={[styles.messageBlock, styles.aiBlock, { opacity: fadeAnim }]}>
@@ -201,17 +257,17 @@ function BuilderCardBlock({ message }: { message: RichMessage }) {
         </LinearGradient>
         <View>
           <Text style={styles.aiName}>Builder</Text>
-          <Text style={styles.aiRole}>Code Generator</Text>
+          <Text style={styles.aiRole}>Live Code Preview</Text>
         </View>
-        <View style={styles.blockBadge}>
-          <MaterialIcons name="developer-mode" size={12} color={Colors.primary} />
-          <Text style={styles.blockBadgeText}>Preview</Text>
+        <View style={[styles.blockBadge, { backgroundColor: 'rgba(34,197,94,0.15)', borderColor: 'rgba(34,197,94,0.3)' }]}>
+          <View style={[styles.liveDot, { backgroundColor: '#22C55E' }]} />
+          <Text style={[styles.blockBadgeText, { color: '#22C55E' }]}>LIVE</Text>
         </View>
       </View>
       
       <View style={styles.builderCard}>
         <LinearGradient
-          colors={['#1a1a2e', '#16213e']}
+          colors={['#0d0d14', '#111118']}
           style={styles.builderPreview}
         >
           <View style={styles.browserBar}>
@@ -221,15 +277,41 @@ function BuilderCardBlock({ message }: { message: RichMessage }) {
               <View style={[styles.browserDot, { backgroundColor: '#22C55E' }]} />
             </View>
             <View style={styles.browserUrl}>
-              <Text style={styles.browserUrlText}>localhost:3000</Text>
+              <MaterialIcons name="lock" size={10} color="#22C55E" style={{ marginRight: 4 }} />
+              <Text style={styles.browserUrlText}>yoverse.app/preview</Text>
             </View>
+            <MaterialIcons name="refresh" size={14} color={Colors.textMuted} />
           </View>
-          <View style={styles.previewContent}>
-            <View style={styles.mockComponent}>
-              <Text style={styles.mockTitle}>{data.title}</Text>
-              <View style={styles.mockButton}>
-                <Text style={styles.mockButtonText}>Click Me</Text>
+          
+          {/* LIVE HTML RENDER - Interactive Component Preview */}
+          <View style={styles.livePreviewContainer}>
+            <View style={styles.liveComponentWrap}>
+              {/* Rendered Card Component */}
+              <View style={styles.renderedCard}>
+                <View style={styles.renderedCardHeader}>
+                  <View style={styles.renderedBadge}>
+                    <Text style={styles.renderedBadgeText}>NEW</Text>
+                  </View>
+                  <Text style={styles.renderedTitle}>{data.title}</Text>
+                </View>
+                <Text style={styles.renderedDesc}>Build amazing things with AI</Text>
+                <Pressable 
+                  style={({ pressed }) => [
+                    styles.renderedCta,
+                    pressed && styles.renderedCtaPressed
+                  ]}
+                >
+                  {({ pressed }) => (
+                    <Text style={styles.renderedCtaText}>
+                      {pressed ? 'Clicked!' : 'Get Started'}
+                    </Text>
+                  )}
+                </Pressable>
               </View>
+            </View>
+            <View style={styles.liveIndicator}>
+              <View style={styles.liveIndicatorDot} />
+              <Text style={styles.liveIndicatorText}>Interactive Preview</Text>
             </View>
           </View>
         </LinearGradient>
@@ -239,32 +321,40 @@ function BuilderCardBlock({ message }: { message: RichMessage }) {
           onPress={() => setExpanded(!expanded)}
         >
           <MaterialIcons name={expanded ? 'expand-less' : 'expand-more'} size={20} color={Colors.textSecondary} />
-          <Text style={styles.codeToggleText}>{expanded ? 'Hide Code' : 'View Code'}</Text>
+          <Text style={styles.codeToggleText}>{expanded ? 'Hide Source Code' : 'View Source Code'}</Text>
         </Pressable>
         
         {expanded && (
           <View style={styles.codeContainer}>
             <View style={styles.codeTab}>
-              <Text style={styles.codeTabActive}>HTML</Text>
-              <Text style={styles.codeTabInactive}>CSS</Text>
+              <Pressable onPress={() => setActiveTab('html')}>
+                <Text style={activeTab === 'html' ? styles.codeTabActive : styles.codeTabInactive}>HTML</Text>
+              </Pressable>
+              <Pressable onPress={() => setActiveTab('css')}>
+                <Text style={activeTab === 'css' ? styles.codeTabActive : styles.codeTabInactive}>CSS</Text>
+              </Pressable>
             </View>
-            <ScrollView style={styles.codeScroll} horizontal>
-              <Text style={styles.codeText}>{data.html}</Text>
+            <ScrollView style={styles.codeScroll} showsVerticalScrollIndicator={true}>
+              <Text style={styles.codeText}>
+                {activeTab === 'html' ? data.html : data.css}
+              </Text>
             </ScrollView>
           </View>
         )}
         
         <View style={styles.builderActions}>
-          <Pressable style={styles.builderAction}>
-            <MaterialIcons name="content-copy" size={16} color={Colors.textSecondary} />
-            <Text style={styles.builderActionText}>Copy</Text>
+          <Pressable style={styles.builderAction} onPress={handleCopy}>
+            <MaterialIcons name={copied ? "check" : "content-copy"} size={16} color={copied ? '#22C55E' : Colors.textSecondary} />
+            <Text style={[styles.builderActionText, copied && { color: '#22C55E' }]}>
+              {copied ? 'Copied!' : 'Copy'}
+            </Text>
           </Pressable>
           <Pressable style={styles.builderAction}>
             <MaterialIcons name="edit" size={16} color={Colors.textSecondary} />
             <Text style={styles.builderActionText}>Edit</Text>
           </Pressable>
           <Pressable style={[styles.builderAction, styles.builderActionPrimary]}>
-            <MaterialIcons name="open-in-new" size={16} color={Colors.textInverse} />
+            <MaterialIcons name="rocket-launch" size={16} color={Colors.textInverse} />
             <Text style={styles.builderActionTextPrimary}>Deploy</Text>
           </Pressable>
         </View>
@@ -373,13 +463,21 @@ function FashionPoseBlock({ message }: { message: RichMessage }) {
   );
 }
 
-// ── Video Generator Block ───────────────────────────────────────────────────
+// ── Video Generator Block (FUNCTIONAL VIDEO PLAYER) ─────────────────────────
 function VideoGeneratorBlock({ message }: { message: RichMessage }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
   const [selectedDuration, setSelectedDuration] = useState('30s');
   const [selectedAspect, setSelectedAspect] = useState('16:9');
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [videoReady, setVideoReady] = useState(false);
+  
+  // Playable video player state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(30);
+  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -388,6 +486,50 @@ function VideoGeneratorBlock({ message }: { message: RichMessage }) {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  // Parse duration to seconds
+  useEffect(() => {
+    const durationMap: Record<string, number> = {
+      '5s': 5, '30s': 30, '1m': 60, '5m': 300, '10m': 600
+    };
+    setTotalDuration(durationMap[selectedDuration] || 30);
+    setCurrentTime(0);
+    setIsPlaying(false);
+  }, [selectedDuration]);
+
+  // Video playback simulation
+  useEffect(() => {
+    if (isPlaying && videoReady) {
+      playIntervalRef.current = setInterval(() => {
+        setCurrentTime(prev => {
+          if (prev >= totalDuration) {
+            setIsPlaying(false);
+            return 0;
+          }
+          return prev + 0.1;
+        });
+      }, 100);
+    } else {
+      if (playIntervalRef.current) {
+        clearInterval(playIntervalRef.current);
+        playIntervalRef.current = null;
+      }
+    }
+    return () => {
+      if (playIntervalRef.current) {
+        clearInterval(playIntervalRef.current);
+      }
+    };
+  }, [isPlaying, videoReady, totalDuration]);
+
+  // Progress bar animation
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: currentTime / totalDuration,
+      duration: 100,
+      useNativeDriver: false,
+    }).start();
+  }, [currentTime, totalDuration]);
 
   const durations = ['5s', '30s', '1m', '5m', '10m'];
   const aspects = [
@@ -400,16 +542,45 @@ function VideoGeneratorBlock({ message }: { message: RichMessage }) {
   const handleGenerate = () => {
     setIsGenerating(true);
     setProgress(0);
+    setVideoReady(false);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    
     const interval = setInterval(() => {
       setProgress(prev => {
         if (prev >= 100) {
           clearInterval(interval);
           setIsGenerating(false);
+          setVideoReady(true);
           return 100;
         }
-        return prev + Math.random() * 15;
+        return prev + Math.random() * 12 + 3;
       });
-    }, 500);
+    }, 400);
+  };
+
+  const handlePlayPause = () => {
+    if (!videoReady) return;
+    if (currentTime >= totalDuration) {
+      setCurrentTime(0);
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleSeek = (position: number) => {
+    const newTime = position * totalDuration;
+    setCurrentTime(Math.max(0, Math.min(newTime, totalDuration)));
+  };
+
+  const handleRestart = () => {
+    setCurrentTime(0);
+    setIsPlaying(true);
+  };
+
+  const formatVideoTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const data = message.videoData || {
@@ -431,47 +602,163 @@ function VideoGeneratorBlock({ message }: { message: RichMessage }) {
           <Text style={styles.aiName}>Video Studio</Text>
           <Text style={styles.aiRole}>AI Generator</Text>
         </View>
-        <View style={[styles.blockBadge, { backgroundColor: 'rgba(139,92,246,0.15)', borderColor: 'rgba(139,92,246,0.3)' }]}>
-          <View style={[styles.liveDot, { backgroundColor: '#8B5CF6' }]} />
-          <Text style={[styles.blockBadgeText, { color: '#8B5CF6' }]}>
-            {isGenerating ? 'Generating' : 'Ready'}
+        <View style={[styles.blockBadge, { backgroundColor: videoReady ? 'rgba(34,197,94,0.15)' : 'rgba(139,92,246,0.15)', borderColor: videoReady ? 'rgba(34,197,94,0.3)' : 'rgba(139,92,246,0.3)' }]}>
+          <View style={[styles.liveDot, { backgroundColor: videoReady ? '#22C55E' : '#8B5CF6' }]} />
+          <Text style={[styles.blockBadgeText, { color: videoReady ? '#22C55E' : '#8B5CF6' }]}>
+            {isGenerating ? 'Generating' : videoReady ? 'Ready' : 'Configure'}
           </Text>
         </View>
       </View>
       
       <View style={styles.videoCard}>
-        {/* Video Preview Screen */}
-        <LinearGradient
-          colors={['#0a0a0f', '#111118']}
-          style={styles.videoPreview}
+        {/* FUNCTIONAL VIDEO PLAYER SCREEN */}
+        <Pressable 
+          onPress={handlePlayPause}
+          style={({ pressed }) => [
+            styles.videoPreviewTouchable,
+            pressed && videoReady && { opacity: 0.9 }
+          ]}
         >
-          {isGenerating ? (
-            <View style={styles.generatingOverlay}>
-              <ProgressRing progress={Math.min(Math.round(progress), 100)} size={64} />
-              <Text style={styles.generatingText}>Creating your video...</Text>
-              <Text style={styles.generatingSubtext}>
-                {progress < 25 ? 'Analyzing prompt...' :
-                 progress < 50 ? 'Generating frames...' :
-                 progress < 75 ? 'Adding effects...' : 'Finalizing...'}
-              </Text>
-            </View>
-          ) : progress >= 100 ? (
-            <View style={styles.videoComplete}>
-              <MaterialIcons name="play-circle-filled" size={64} color={Colors.primary} />
-              <Text style={styles.videoCompleteText}>Video Ready</Text>
-            </View>
-          ) : (
-            <View style={styles.videoPlaceholder}>
-              <MaterialIcons name="movie-creation" size={48} color={Colors.textMuted} />
-              <Text style={styles.videoPlaceholderText}>Preview will appear here</Text>
-            </View>
-          )}
-          
-          {/* Aspect Ratio Indicator */}
-          <View style={styles.aspectIndicator}>
-            <Text style={styles.aspectIndicatorText}>{selectedAspect}</Text>
-          </View>
-        </LinearGradient>
+          <LinearGradient
+            colors={['#0a0a0f', '#111118', '#0a0a0f']}
+            style={[
+              styles.videoPreview,
+              selectedAspect === '9:16' && { aspectRatio: 9/16 },
+              selectedAspect === '1:1' && { aspectRatio: 1 },
+              selectedAspect === '4:5' && { aspectRatio: 4/5 },
+            ]}
+          >
+            {isGenerating ? (
+              <View style={styles.generatingOverlay}>
+                <ProgressRing progress={Math.min(Math.round(progress), 100)} size={64} />
+                <Text style={styles.generatingText}>Creating your video...</Text>
+                <Text style={styles.generatingSubtext}>
+                  {progress < 25 ? 'Analyzing prompt...' :
+                   progress < 50 ? 'Generating frames...' :
+                   progress < 75 ? 'Adding effects...' : 'Finalizing...'}
+                </Text>
+              </View>
+            ) : videoReady ? (
+              <View style={styles.videoPlayerActive}>
+                {/* Video Content Simulation */}
+                <LinearGradient
+                  colors={isPlaying ? ['#1a1a3e', '#0f0f2a', '#1a1a3e'] : ['#111122', '#0a0a15', '#111122']}
+                  style={styles.videoContentArea}
+                >
+                  {/* Animated video content visual */}
+                  <Animated.View style={[
+                    styles.videoWaveform,
+                    { opacity: isPlaying ? 1 : 0.3 }
+                  ]}>
+                    {[...Array(12)].map((_, i) => (
+                      <Animated.View 
+                        key={i} 
+                        style={[
+                          styles.waveBar,
+                          { 
+                            height: isPlaying ? 20 + Math.sin((currentTime * 3) + i) * 15 : 8,
+                            backgroundColor: isPlaying ? Colors.primary : Colors.textMuted,
+                          }
+                        ]} 
+                      />
+                    ))}
+                  </Animated.View>
+                  
+                  {/* Center Play/Pause Button */}
+                  <View style={[
+                    styles.centerPlayButton,
+                    isPlaying && styles.centerPlayButtonHidden
+                  ]}>
+                    <MaterialIcons 
+                      name={isPlaying ? "pause-circle-filled" : "play-circle-filled"} 
+                      size={72} 
+                      color={Colors.primary} 
+                    />
+                  </View>
+                </LinearGradient>
+                
+                {/* Video Controls Overlay */}
+                <View style={styles.videoControlsOverlay}>
+                  {/* Top Bar */}
+                  <View style={styles.videoTopBar}>
+                    <View style={styles.videoQualityBadge}>
+                      <Text style={styles.videoQualityText}>HD</Text>
+                    </View>
+                    <Text style={styles.videoAspectText}>{selectedAspect}</Text>
+                  </View>
+                  
+                  {/* Bottom Controls */}
+                  <View style={styles.videoBottomControls}>
+                    {/* Progress Bar */}
+                    <View style={styles.videoProgressContainer}>
+                      <Pressable 
+                        style={styles.videoProgressTrack}
+                        onPress={(e) => {
+                          const { locationX } = e.nativeEvent;
+                          const trackWidth = 280; // approximate
+                          handleSeek(locationX / trackWidth);
+                        }}
+                      >
+                        <View style={styles.videoProgressBg} />
+                        <Animated.View 
+                          style={[
+                            styles.videoProgressFill,
+                            { 
+                              width: progressAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: ['0%', '100%'],
+                              })
+                            }
+                          ]} 
+                        />
+                        <Animated.View 
+                          style={[
+                            styles.videoProgressThumb,
+                            {
+                              left: progressAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: ['0%', '100%'],
+                              })
+                            }
+                          ]}
+                        />
+                      </Pressable>
+                    </View>
+                    
+                    {/* Time & Controls */}
+                    <View style={styles.videoTimeRow}>
+                      <Pressable onPress={handleRestart} style={styles.videoControlBtn}>
+                        <MaterialIcons name="replay" size={20} color={Colors.textPrimary} />
+                      </Pressable>
+                      
+                      <Pressable onPress={handlePlayPause} style={styles.videoPlayBtn}>
+                        <MaterialIcons 
+                          name={isPlaying ? "pause" : "play-arrow"} 
+                          size={28} 
+                          color={Colors.textInverse} 
+                        />
+                      </Pressable>
+                      
+                      <Text style={styles.videoTimeText}>
+                        {formatVideoTime(currentTime)} / {formatVideoTime(totalDuration)}
+                      </Text>
+                      
+                      <Pressable style={styles.videoControlBtn}>
+                        <MaterialIcons name="fullscreen" size={20} color={Colors.textPrimary} />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.videoPlaceholder}>
+                <MaterialIcons name="movie-creation" size={48} color={Colors.textMuted} />
+                <Text style={styles.videoPlaceholderText}>Configure and generate your video</Text>
+                <Text style={styles.videoPlaceholderHint}>Select duration and aspect ratio below</Text>
+              </View>
+            )}
+          </LinearGradient>
+        </Pressable>
         
         {/* Duration Selector */}
         <View style={styles.videoControls}>
@@ -533,15 +820,17 @@ function VideoGeneratorBlock({ message }: { message: RichMessage }) {
           disabled={isGenerating}
         >
           <LinearGradient
-            colors={isGenerating ? ['#333', '#222'] : [Colors.primary, Colors.primaryDim]}
+            colors={isGenerating ? ['#333', '#222'] : videoReady ? ['#22C55E', '#16A34A'] : [Colors.primary, Colors.primaryDim]}
             style={styles.generateButtonGradient}
           >
             {isGenerating ? (
               <ActivityIndicator size="small" color={Colors.textMuted} />
             ) : (
               <>
-                <MaterialIcons name="auto-awesome" size={20} color={Colors.textInverse} />
-                <Text style={styles.generateButtonText}>Generate Video</Text>
+                <MaterialIcons name={videoReady ? "refresh" : "auto-awesome"} size={20} color={Colors.textInverse} />
+                <Text style={styles.generateButtonText}>
+                  {videoReady ? 'Regenerate Video' : 'Generate Video'}
+                </Text>
               </>
             )}
           </LinearGradient>
@@ -1255,6 +1544,86 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  
+  // ── Live Preview Styles ──
+  livePreviewContainer: {
+    padding: Spacing.md,
+    minHeight: 160,
+  },
+  liveComponentWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  renderedCard: {
+    backgroundColor: 'rgba(26,26,46,0.9)',
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.2)',
+    minWidth: 240,
+  },
+  renderedCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  renderedBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  renderedBadgeText: {
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+    color: Colors.textInverse,
+  },
+  renderedTitle: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  renderedDesc: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginBottom: Spacing.md,
+  },
+  renderedCta: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+  },
+  renderedCtaPressed: {
+    backgroundColor: '#FFC107',
+    transform: [{ scale: 1.02 }],
+  },
+  renderedCtaText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+    color: Colors.textInverse,
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.md,
+    gap: 6,
+  },
+  liveIndicatorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
+  },
+  liveIndicatorText: {
+    fontSize: 10,
+    color: '#22C55E',
+    fontWeight: FontWeight.semibold,
+  },
+  
   mockComponent: {
     backgroundColor: Colors.surfaceElevated,
     borderRadius: Radius.md,
@@ -1482,11 +1851,149 @@ const styles = StyleSheet.create({
     borderColor: Colors.surfaceBorder,
     overflow: 'hidden',
   },
+  videoPreviewTouchable: {
+    width: '100%',
+  },
   videoPreview: {
     aspectRatio: 16 / 9,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    overflow: 'hidden',
+  },
+  videoPlayerActive: {
+    flex: 1,
+    width: '100%',
+    position: 'relative',
+  },
+  videoContentArea: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoWaveform: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    position: 'absolute',
+    bottom: 60,
+  },
+  waveBar: {
+    width: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+  },
+  centerPlayButton: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerPlayButtonHidden: {
+    opacity: 0.3,
+  },
+  videoControlsOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+  },
+  videoTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.sm,
+  },
+  videoQualityBadge: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  videoQualityText: {
+    fontSize: 10,
+    color: Colors.primary,
+    fontWeight: FontWeight.bold,
+  },
+  videoAspectText: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  videoBottomControls: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  videoProgressContainer: {
+    marginBottom: Spacing.xs,
+  },
+  videoProgressTrack: {
+    height: 20,
+    justifyContent: 'center',
+  },
+  videoProgressBg: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+  },
+  videoProgressFill: {
+    position: 'absolute',
+    left: 0,
+    height: 4,
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
+  },
+  videoProgressThumb: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.primary,
+    marginLeft: -6,
+    top: 4,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  videoTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+  },
+  videoControlBtn: {
+    padding: 4,
+  },
+  videoPlayBtn: {
+    backgroundColor: Colors.primary,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoTimeText: {
+    fontSize: 11,
+    color: Colors.textPrimary,
+    fontFamily: 'monospace',
+    minWidth: 80,
+    textAlign: 'center',
+  },
+  videoPlaceholderHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    marginTop: 4,
   },
   generatingOverlay: {
     alignItems: 'center',
