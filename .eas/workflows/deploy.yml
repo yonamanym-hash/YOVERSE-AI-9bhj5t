@@ -1,0 +1,28 @@
+name: Live App Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy_web:
+    name: Publish Live URL
+    type: deploy
+    params:
+      platform: web
+
+  build_android:
+    name: Build Android Installer
+    type: build
+    params:
+      platform: android
+      profile: preview
+
+  build_ios:
+    name: Build iOS Installer
+    type: build
+    params:
+      platform: ios
+      profile: production
+
