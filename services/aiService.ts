@@ -1,4 +1,4 @@
-// Powered by OnSpace.AI
+// Powered by Gemini
 import { getSupabaseClient } from '@/template';
 
 export type Language = 'en' | 'am';
@@ -9,13 +9,9 @@ export interface ChatMessage {
 }
 
 export type AIModel =
-  | 'openai/gpt-5.1'
-  | 'x-ai/grok-3'
-  | 'x-ai/grok-3-mini'
-  | 'google/gemini-3-flash-preview'
-  | 'google/gemini-3-pro-preview'
-  | 'openai/gpt-5-mini'
-  | 'openai/gpt-5-nano';
+  | 'gemini-2.5-pro'
+  | 'gemini-2.5-flash'
+  | 'gemini-2.0-flash';
 
 export interface AIModelInfo {
   id: AIModel;
@@ -29,76 +25,39 @@ export interface AIModelInfo {
 
 export const AI_MODELS: AIModelInfo[] = [
   {
-    id: 'openai/gpt-5.1',
-    label: 'GPT-5.1',
-    badge: 'OpenAI',
-    color: '#10a37f',
-    description: 'Most capable. Best for complex code, deep analysis, essays.',
-    speed: 'powerful',
-    capabilities: ['code', 'trading', 'writing', 'vision', 'math'],
-  },
-  {
-    id: 'x-ai/grok-3',
-    label: 'Grok-3',
-    badge: 'xAI',
-    color: '#FF6B35',
-    description: 'Real-time aware. Excellent for trading, news, wit.',
-    speed: 'powerful',
-    capabilities: ['trading', 'research', 'writing', 'vision'],
-  },
-  {
-    id: 'google/gemini-3-pro-preview',
-    label: 'Gemini Pro',
+    id: 'gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
     badge: 'Google',
     color: '#0F9D58',
-    description: 'Long context. Great for documents, research, Amharic.',
+    description: 'Most powerful. Deep reasoning, long context, complex tasks.',
     speed: 'powerful',
-    capabilities: ['translation', 'research', 'code', 'math'],
+    capabilities: ['code', 'trading', 'writing', 'vision', 'math', 'research'],
   },
   {
-    id: 'google/gemini-3-flash-preview',
-    label: 'Gemini Flash',
+    id: 'gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
     badge: 'Google',
     color: '#4285F4',
-    description: 'Fastest responses. Best for voice and quick answers.',
+    description: 'Best balance of speed and intelligence. Great for everything.',
+    speed: 'balanced',
+    capabilities: ['code', 'trading', 'writing', 'vision', 'translation'],
+  },
+  {
+    id: 'gemini-2.0-flash',
+    label: 'Gemini 2.0 Flash',
+    badge: 'Google',
+    color: '#FBBC05',
+    description: 'Ultra fast. Ideal for voice mode and quick answers.',
     speed: 'fast',
     capabilities: ['voice', 'quick', 'translation'],
   },
-  {
-    id: 'x-ai/grok-3-mini',
-    label: 'Grok-3 Mini',
-    badge: 'xAI',
-    color: '#FF8C5A',
-    description: 'Fast Grok. Good for quick trading and market checks.',
-    speed: 'fast',
-    capabilities: ['trading', 'quick'],
-  },
-  {
-    id: 'openai/gpt-5-mini',
-    label: 'GPT-5 Mini',
-    badge: 'OpenAI',
-    color: '#20c997',
-    description: 'Balanced speed and quality. Great all-rounder.',
-    speed: 'balanced',
-    capabilities: ['code', 'writing', 'math'],
-  },
-  {
-    id: 'openai/gpt-5-nano',
-    label: 'GPT-5 Nano',
-    badge: 'OpenAI',
-    color: '#6ee7b7',
-    description: 'Ultra fast. Best for voice-to-voice hands-free mode.',
-    speed: 'fast',
-    capabilities: ['voice', 'quick'],
-  },
 ];
 
-/** Recommended model for hands-free voice-to-voice (fast + good quality) */
-export const VOICE_MODEL: AIModel = 'openai/gpt-5-mini';
+/** Recommended model for hands-free voice-to-voice */
+export const VOICE_MODEL: AIModel = 'gemini-2.0-flash';
 
 /**
  * Calls the Digital Twin Edge Function with streaming.
- * Supports optional imageBase64 for multimodal (vision) requests.
  */
 export async function streamAIResponse(
   conversationHistory: ChatMessage[],
@@ -106,7 +65,7 @@ export async function streamAIResponse(
   onChunk: (chunk: string) => void,
   signal?: AbortSignal,
   imageBase64?: string,
-  model: AIModel = 'openai/gpt-5.1'
+  model: AIModel = 'gemini-2.5-flash'
 ): Promise<string> {
   const supabase = getSupabaseClient();
   const { data: sessionData } = await supabase.auth.getSession();
@@ -177,7 +136,7 @@ export async function streamAIResponse(
       } catch {}
     }
   } else {
-    // Fallback: full response (non-streaming environments)
+    // Fallback: full response
     const text = await response.text();
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
@@ -194,6 +153,6 @@ export async function streamAIResponse(
 }
 
 export const STARTER_MESSAGES = {
-  en: "Selam! I'm your Digital Twin — powered by GPT-5.1, Grok-3, Gemini and more.\n\nI can handle **anything**:\n• 💻 Code in any language\n• 📊 XAUUSD & forex trading analysis\n• ✍️ Essays, CVs, creative writing\n• 🔢 Math step-by-step\n• 🌍 Translation (Amharic ↔ English ↔ any language)\n• 🏦 Prop firm strategies\n• 🎨 Photo editing & style advice\n• 🎙️ Voice-to-voice hands-free mode\n\nTap the mic for voice, or type anything. What are we doing today?",
-  am: "ሰላም! እኔ ዲጂታል ትዊን ነኝ — GPT-5.1፣ Grok-3፣ Gemini ሃይል።\n\nሁሉንም ማድረግ እችላለሁ:\n• 💻 ማናቸውም ቋንቋ ኮድ\n• 📊 XAUUSD ትንተና\n• ✍️ ጽሑፍ፣ CV፣ ፈጠራ\n• 🔢 ሒሳብ ደረጃ በደረጃ\n• 🌍 ትርጉም (አማርኛ ↔ እንግሊዝኛ)\n• 🎙️ ድምጽ-ወደ-ድምጽ ሃንድስ ፍሪ ሁነታ\n\nለድምጽ ማይክ ይጫኑ ወይም ይጻፉ። ዛሬ ምን እናድርግ?",
+  en: "Selam! I'm your Digital Twin — powered by Gemini 2.5 Pro.\n\nI can handle **anything**:\n• 💻 Code in any language\n• 📊 XAUUSD & forex trading analysis\n• ✍️ Essays, CVs, creative writing\n• 🔢 Math step-by-step\n• 🌍 Translation (Amharic ↔ English ↔ any language)\n• 🏦 Prop firm strategies\n• 🎨 Photo editing & style advice\n• 🎙️ Voice-to-voice hands-free mode\n\nTap the mic for voice, or type anything. What are we doing today?",
+  am: "ሰላም! እኔ ዲጂታል ትዊን ነኝ — Gemini 2.5 Pro ሃይል።\n\nሁሉንም ማድረግ እችላለሁ:\n• 💻 ማናቸውም ቋንቋ ኮድ\n• 📊 XAUUSD ትንተና\n• ✍️ ጽሑፍ፣ CV፣ ፈጠራ\n• 🔢 ሒሳብ ደረጃ በደረጃ\n• 🌍 ትርጉም (አማርኛ ↔ እንግሊዝኛ)\n• 🎙️ ድምጽ-ወደ-ድምጽ ሃንድስ ፍሪ ሁነታ\n\nለድምጽ ማይክ ይጫኑ ወይም ይጻፉ። ዛሬ ምን እናድርግ?",
 };

@@ -1,5 +1,8 @@
-// Powered by OnSpace.AI — Digital Twin v2.0 ULTIMATE + Voice
+// Powered by Gemini — Digital Twin v3.0
 import { corsHeaders } from '../_shared/cors.ts';
+
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_OPENAI_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
 const SYSTEM_PROMPT = `You are the Digital Twin and Executive Assistant of Yonas — a young, ambitious Ethiopian student who is simultaneously pursuing his education and building a career as a professional forex trader and app developer.
 
@@ -127,18 +130,63 @@ Analyze photos and give highly specific, actionable feedback on:
 
 Be honest, specific, and encouraging. Generic advice is useless — name exact adjustments, percentages, and techniques.`;
 
+// ── Helper: call Gemini native REST (non-streaming) ──────────────────────────
+async function geminiGenerate(apiKey: string, model: string, contents: unknown[], systemInstruction?: string): Promise<string> {
+  const body: Record<string, unknown> = { contents };
+  if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+  body.generationConfig = { maxOutputTokens: 2048, temperature: 0.4 };
+
+  const url = `${GEMINI_BASE_URL}/models/${model}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini: ${err}`);
+  }
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+// ── Helper: Gemini streaming via OpenAI-compatible endpoint ──────────────────
+async function geminiStream(
+  apiKey: string,
+  model: string,
+  messages: Array<{ role: string; content: string | Array<{ type: string; [k: string]: unknown }> }>,
+  systemPrompt: string,
+  maxTokens = 8192
+): Promise<Response> {
+  const url = `${GEMINI_OPENAI_BASE}/chat/completions`;
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      stream: true,
+      max_tokens: maxTokens,
+      temperature: 0.7,
+    }),
+  });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const apiKey = Deno.env.get('ONSPACE_AI_API_KEY');
-    const baseUrl = Deno.env.get('ONSPACE_AI_BASE_URL');
-
-    if (!apiKey || !baseUrl) {
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: 'OnSpace AI not configured' }),
+        JSON.stringify({ error: 'Gemini API key not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -146,100 +194,64 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const { messages, language, imageBase64, audioBase64, mode, model: requestedModel } = body;
 
+    // Allowed Gemini models
+    const ALLOWED_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    const selectedModel = requestedModel && ALLOWED_MODELS.includes(requestedModel)
+      ? requestedModel
+      : 'gemini-2.5-flash';
+
     // ── VOICE TRANSCRIPTION MODE ─────────────────────────────────────────
     if (mode === 'transcribe' && audioBase64) {
       const langInstruction = language === 'am'
         ? 'The user is speaking Amharic. Transcribe exactly what they said in Amharic (Ethiopic script). Return ONLY the transcription, no extra text.'
-        : 'Transcribe exactly what the user said in English. Return ONLY the transcription, no extra text, no punctuation corrections.';
+        : 'Transcribe exactly what the user said in English. Return ONLY the transcription, no extra text.';
 
-      const transcribePayload = {
-        model: 'google/gemini-3-flash-preview',
-        messages: [
+      try {
+        const transcript = await geminiGenerate(apiKey, 'gemini-2.0-flash', [
           {
             role: 'user',
-            content: [
-              { type: 'text', text: langInstruction },
-              {
-                type: 'image_url',
-                image_url: { url: `data:audio/m4a;base64,${audioBase64}` },
-              },
+            parts: [
+              { text: langInstruction },
+              { inlineData: { mimeType: 'audio/mp4', data: audioBase64 } },
             ],
           },
-        ],
-        stream: false,
-        max_tokens: 500,
-        temperature: 0.1,
-      };
-
-      const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify(transcribePayload),
-      });
-
-      if (!aiResponse.ok) {
-        const errText = await aiResponse.text();
-        console.error('Transcription error:', errText);
+        ]);
         return new Response(
-          JSON.stringify({ error: `Transcription failed: ${errText}`, transcript: '' }),
+          JSON.stringify({ transcript: transcript.trim() }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (e) {
+        console.error('Transcription error:', e);
+        return new Response(
+          JSON.stringify({ transcript: '' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      const result = await aiResponse.json();
-      const transcript = result.choices?.[0]?.message?.content?.trim() ?? '';
-      return new Response(
-        JSON.stringify({ transcript }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
-    // ── STUDIO MODE: Non-streaming photo analysis ───────────────────────
+    // ── STUDIO MODE: Photo analysis (non-streaming) ──────────────────────
     if (mode === 'studio' && imageBase64) {
-      const userMessage = messages[messages.length - 1];
-      const userText = userMessage?.content ?? 'Analyze this photo.';
-
-      const studioPayload = {
-        model: 'google/gemini-3-flash-preview',
-        messages: [
-          { role: 'system', content: STUDIO_SYSTEM_PROMPT },
+      const userText = messages?.[messages.length - 1]?.content ?? 'Analyze this photo.';
+      try {
+        const content = await geminiGenerate(apiKey, 'gemini-2.5-flash', [
           {
             role: 'user',
-            content: [
-              { type: 'text', text: userText },
-              {
-                type: 'image_url',
-                image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-              },
+            parts: [
+              { text: userText },
+              { inlineData: { mimeType: 'image/jpeg', data: imageBase64 } },
             ],
           },
-        ],
-        stream: false,
-        max_tokens: 2000,
-        temperature: 0.6,
-      };
-
-      const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify(studioPayload),
-      });
-
-      if (!aiResponse.ok) {
-        const errText = await aiResponse.text();
-        console.error('OnSpace AI studio error:', errText);
+        ], STUDIO_SYSTEM_PROMPT);
         return new Response(
-          JSON.stringify({ error: `AI error: ${errText}` }),
-          { status: aiResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ content }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (e) {
+        return new Response(
+          JSON.stringify({ error: String(e) }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-
-      const result = await aiResponse.json();
-      const content = result.choices?.[0]?.message?.content ?? 'No analysis available.';
-      return new Response(
-        JSON.stringify({ content }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
     if (!messages || !Array.isArray(messages)) {
@@ -249,51 +261,37 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // ── CHAT MODE WITH IMAGE: Streaming vision response ─────────────────
+    const langHint = language === 'am'
+      ? '\n\nIMPORTANT: The user is communicating in Amharic. Always respond in Amharic (Ethiopic script አምሃርኛ). Use English ONLY for code blocks or untranslatable technical terms.'
+      : '\n\nIMPORTANT: Respond in English. You may occasionally use Amharic phrases for warmth and encouragement.';
+
+    const systemPrompt = SYSTEM_PROMPT + langHint;
+    const recentMessages = messages.slice(-40);
+
+    // ── CHAT WITH IMAGE: vision request ──────────────────────────────────
     if (imageBase64) {
-      const userMessage = messages[messages.length - 1];
-      const userText = userMessage?.content ?? 'Analyze this image.';
-      const recentHistory = messages.slice(-15, -1);
-      const langHint = language === 'am'
-        ? '\n\nRespond in Amharic (Ethiopic script).'
-        : '';
+      const userMsg = recentMessages[recentMessages.length - 1];
+      const userText = typeof userMsg?.content === 'string' ? userMsg.content : 'Analyze this image.';
+      const history = recentMessages.slice(0, -1);
 
-      // Vision: prefer GPT-5.1 for image support, Grok-3 also supports vision
-      const visionModel = requestedModel === 'x-ai/grok-3' ? 'x-ai/grok-3' : 'openai/gpt-5.1';
+      const geminiMessages = [
+        ...history.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: userText },
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+          ],
+        },
+      ];
 
-      const visionPayload = {
-        model: visionModel,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT + langHint },
-          ...recentHistory,
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userText },
-              {
-                type: 'image_url',
-                image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-              },
-            ],
-          },
-        ],
-        stream: true,
-        max_tokens: 4096,
-        temperature: 0.7,
-      };
-
-      const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify(visionPayload),
-      });
-
+      const aiResponse = await geminiStream(apiKey, selectedModel, geminiMessages, systemPrompt);
       if (!aiResponse.ok) {
-        const errText = await aiResponse.text();
-        return new Response(
-          JSON.stringify({ error: `AI error: ${errText}` }),
-          { status: aiResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        const err = await aiResponse.text();
+        return new Response(JSON.stringify({ error: `Gemini: ${err}` }), {
+          status: aiResponse.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       const stream = new TransformStream();
@@ -317,50 +315,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ── CHAT MODE: Streaming conversation ──────────────────────────────
-    const langHint = language === 'am'
-      ? '\n\nIMPORTANT: The user is communicating in Amharic. Always respond in Amharic (Ethiopic script አምሃርኛ). Use English ONLY for code blocks or untranslatable technical terms.'
-      : '\n\nIMPORTANT: Respond in English. You may occasionally use Amharic phrases for warmth and encouragement.';
+    // ── CHAT MODE: Streaming conversation ────────────────────────────────
+    console.log(`[Digital Twin] Gemini model: ${selectedModel}`);
 
-    const recentMessages = messages.slice(-40);
-
-    // Select model — default GPT-5.1, allow Grok-3, Gemini, etc.
-    const ALLOWED_MODELS = [
-      'openai/gpt-5.1',
-      'openai/gpt-5-mini',
-      'openai/gpt-5-nano',
-      'x-ai/grok-3',
-      'x-ai/grok-3-mini',
-      'google/gemini-3-flash-preview',
-      'google/gemini-3-pro-preview',
-      'google/gemini-2.5-flash-lite',
-    ];
-    const selectedModel = requestedModel && ALLOWED_MODELS.includes(requestedModel)
-      ? requestedModel
-      : 'openai/gpt-5.1';
-
-    console.log(`[Digital Twin] Using model: ${selectedModel}`);
-
-    const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT + langHint },
-          ...recentMessages,
-        ],
-        stream: true,
-        max_tokens: 8192,
-        temperature: 0.7,
-      }),
-    });
+    const aiResponse = await geminiStream(apiKey, selectedModel, recentMessages, systemPrompt);
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
-      console.error('OnSpace AI error:', errText);
+      console.error('Gemini error:', errText);
       return new Response(
-        JSON.stringify({ error: `AI error: ${errText}` }),
+        JSON.stringify({ error: `Gemini: ${errText}` }),
         { status: aiResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

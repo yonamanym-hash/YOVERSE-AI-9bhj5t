@@ -642,7 +642,7 @@ export default function ChatScreen() {
           <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
             <View style={styles.pickerHandle} />
             <Text style={styles.pickerTitle}>Choose AI Model</Text>
-            <Text style={styles.pickerSub}>All models powered by OnSpace AI — switch anytime</Text>
+            <Text style={styles.pickerSub}>All models powered by Google Gemini — switch anytime</Text>
             {AI_MODELS.map((m) => {
               const active = activeModel === m.id;
               return (
@@ -668,7 +668,7 @@ export default function ChatScreen() {
             })}
             <View style={styles.voiceTip}>
               <MaterialIcons name="info-outline" size={14} color={Colors.textMuted} />
-              <Text style={styles.voiceTipText}>Hands-Free mode auto-uses GPT-5 Mini for speed</Text>
+              <Text style={styles.voiceTipText}>Hands-Free mode auto-uses Gemini 2.0 Flash for speed</Text>
             </View>
           </Pressable>
         </Pressable>
