@@ -26,7 +26,7 @@ function dbMsgToMessage(m: DBMessage): Message {
 export function useChat() {
   const { user } = useAuth();
   const [language, setLanguage] = useState<Language>('en');
-  const [activeModel, setActiveModel] = useState<AIModel>('gemini-2.5-flash');
+  const [activeModel, setActiveModel] = useState<AIModel>('gemini-2.5-flash-preview-05-20');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [inputText, setInputText] = useState('');

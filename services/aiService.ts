@@ -9,8 +9,8 @@ export interface ChatMessage {
 }
 
 export type AIModel =
-  | 'gemini-2.5-pro'
-  | 'gemini-2.5-flash'
+  | 'gemini-2.5-pro-preview-06-05'
+  | 'gemini-2.5-flash-preview-05-20'
   | 'gemini-2.0-flash';
 
 export interface AIModelInfo {
@@ -25,7 +25,7 @@ export interface AIModelInfo {
 
 export const AI_MODELS: AIModelInfo[] = [
   {
-    id: 'gemini-2.5-pro',
+    id: 'gemini-2.5-pro-preview-06-05',
     label: 'Gemini 2.5 Pro',
     badge: 'Google',
     color: '#0F9D58',
@@ -34,7 +34,7 @@ export const AI_MODELS: AIModelInfo[] = [
     capabilities: ['code', 'trading', 'writing', 'vision', 'math', 'research'],
   },
   {
-    id: 'gemini-2.5-flash',
+    id: 'gemini-2.5-flash-preview-05-20',
     label: 'Gemini 2.5 Flash',
     badge: 'Google',
     color: '#4285F4',
@@ -65,7 +65,7 @@ export async function streamAIResponse(
   onChunk: (chunk: string) => void,
   signal?: AbortSignal,
   imageBase64?: string,
-  model: AIModel = 'gemini-2.5-flash'
+  model: AIModel = 'gemini-2.5-flash-preview-05-20'
 ): Promise<string> {
   const supabase = getSupabaseClient();
   const { data: sessionData } = await supabase.auth.getSession();

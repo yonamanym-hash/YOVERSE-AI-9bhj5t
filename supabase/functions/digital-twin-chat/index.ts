@@ -195,10 +195,10 @@ Deno.serve(async (req: Request) => {
     const { messages, language, imageBase64, audioBase64, mode, model: requestedModel } = body;
 
     // Allowed Gemini models
-    const ALLOWED_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    const ALLOWED_MODELS = ['gemini-2.5-pro-preview-06-05', 'gemini-2.5-flash-preview-05-20', 'gemini-2.0-flash'];
     const selectedModel = requestedModel && ALLOWED_MODELS.includes(requestedModel)
       ? requestedModel
-      : 'gemini-2.5-flash';
+      : 'gemini-2.5-flash-preview-05-20';
 
     // ── VOICE TRANSCRIPTION MODE ─────────────────────────────────────────
     if (mode === 'transcribe' && audioBase64) {
@@ -207,7 +207,7 @@ Deno.serve(async (req: Request) => {
         : 'Transcribe exactly what the user said in English. Return ONLY the transcription, no extra text.';
 
       try {
-        const transcript = await geminiGenerate(apiKey, 'gemini-2.0-flash', [
+        const transcript = await geminiGenerate(apiKey, 'gemini-2.0-flash-lite', [
           {
             role: 'user',
             parts: [
@@ -233,7 +233,7 @@ Deno.serve(async (req: Request) => {
     if (mode === 'studio' && imageBase64) {
       const userText = messages?.[messages.length - 1]?.content ?? 'Analyze this photo.';
       try {
-        const content = await geminiGenerate(apiKey, 'gemini-2.5-flash', [
+        const content = await geminiGenerate(apiKey, 'gemini-2.5-flash-preview-05-20', [
           {
             role: 'user',
             parts: [
