@@ -8,16 +8,93 @@ export interface ChatMessage {
   content: string;
 }
 
-export type AIModel = 'openai/gpt-5.1' | 'x-ai/grok-3' | 'x-ai/grok-3-mini' | 'google/gemini-3-flash-preview' | 'google/gemini-3-pro-preview' | 'openai/gpt-5-mini';
+export type AIModel =
+  | 'openai/gpt-5.1'
+  | 'x-ai/grok-3'
+  | 'x-ai/grok-3-mini'
+  | 'google/gemini-3-flash-preview'
+  | 'google/gemini-3-pro-preview'
+  | 'openai/gpt-5-mini'
+  | 'openai/gpt-5-nano';
 
-export const AI_MODELS: { id: AIModel; label: string; badge: string; color: string }[] = [
-  { id: 'openai/gpt-5.1',               label: 'GPT-5.1',       badge: 'OpenAI',   color: '#10a37f' },
-  { id: 'x-ai/grok-3',                  label: 'Grok-3',        badge: 'xAI',      color: '#FF6B35' },
-  { id: 'x-ai/grok-3-mini',             label: 'Grok-3 Mini',   badge: 'xAI',      color: '#FF8C5A' },
-  { id: 'google/gemini-3-flash-preview', label: 'Gemini Flash',  badge: 'Google',   color: '#4285F4' },
-  { id: 'google/gemini-3-pro-preview',   label: 'Gemini Pro',    badge: 'Google',   color: '#0F9D58' },
-  { id: 'openai/gpt-5-mini',            label: 'GPT-5 Mini',    badge: 'OpenAI',   color: '#20c997' },
+export interface AIModelInfo {
+  id: AIModel;
+  label: string;
+  badge: string;
+  color: string;
+  description: string;
+  speed: 'fast' | 'balanced' | 'powerful';
+  capabilities: string[];
+}
+
+export const AI_MODELS: AIModelInfo[] = [
+  {
+    id: 'openai/gpt-5.1',
+    label: 'GPT-5.1',
+    badge: 'OpenAI',
+    color: '#10a37f',
+    description: 'Most capable. Best for complex code, deep analysis, essays.',
+    speed: 'powerful',
+    capabilities: ['code', 'trading', 'writing', 'vision', 'math'],
+  },
+  {
+    id: 'x-ai/grok-3',
+    label: 'Grok-3',
+    badge: 'xAI',
+    color: '#FF6B35',
+    description: 'Real-time aware. Excellent for trading, news, wit.',
+    speed: 'powerful',
+    capabilities: ['trading', 'research', 'writing', 'vision'],
+  },
+  {
+    id: 'google/gemini-3-pro-preview',
+    label: 'Gemini Pro',
+    badge: 'Google',
+    color: '#0F9D58',
+    description: 'Long context. Great for documents, research, Amharic.',
+    speed: 'powerful',
+    capabilities: ['translation', 'research', 'code', 'math'],
+  },
+  {
+    id: 'google/gemini-3-flash-preview',
+    label: 'Gemini Flash',
+    badge: 'Google',
+    color: '#4285F4',
+    description: 'Fastest responses. Best for voice and quick answers.',
+    speed: 'fast',
+    capabilities: ['voice', 'quick', 'translation'],
+  },
+  {
+    id: 'x-ai/grok-3-mini',
+    label: 'Grok-3 Mini',
+    badge: 'xAI',
+    color: '#FF8C5A',
+    description: 'Fast Grok. Good for quick trading and market checks.',
+    speed: 'fast',
+    capabilities: ['trading', 'quick'],
+  },
+  {
+    id: 'openai/gpt-5-mini',
+    label: 'GPT-5 Mini',
+    badge: 'OpenAI',
+    color: '#20c997',
+    description: 'Balanced speed and quality. Great all-rounder.',
+    speed: 'balanced',
+    capabilities: ['code', 'writing', 'math'],
+  },
+  {
+    id: 'openai/gpt-5-nano',
+    label: 'GPT-5 Nano',
+    badge: 'OpenAI',
+    color: '#6ee7b7',
+    description: 'Ultra fast. Best for voice-to-voice hands-free mode.',
+    speed: 'fast',
+    capabilities: ['voice', 'quick'],
+  },
 ];
+
+/** Recommended model for hands-free voice-to-voice (fast + good quality) */
+export const VOICE_MODEL: AIModel = 'openai/gpt-5-mini';
 
 /**
  * Calls the Digital Twin Edge Function with streaming.
@@ -38,24 +115,21 @@ export async function streamAIResponse(
   const backendUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-  const response = await fetch(
-    `${backendUrl}/functions/v1/digital-twin-chat`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': anonKey ?? '',
-        'Authorization': `Bearer ${token ?? anonKey ?? ''}`,
-      },
-      body: JSON.stringify({
-        messages: conversationHistory,
-        language,
-        model,
-        ...(imageBase64 ? { imageBase64 } : {}),
-      }),
-      signal,
-    }
-  );
+  const response = await fetch(`${backendUrl}/functions/v1/digital-twin-chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': anonKey ?? '',
+      'Authorization': `Bearer ${token ?? anonKey ?? ''}`,
+    },
+    body: JSON.stringify({
+      messages: conversationHistory,
+      language,
+      model,
+      ...(imageBase64 ? { imageBase64 } : {}),
+    }),
+    signal,
+  });
 
   if (!response.ok) {
     const errText = await response.text();
@@ -95,7 +169,7 @@ export async function streamAIResponse(
     }
 
     // Flush remaining buffer
-    if (buffer.trim() && buffer.trim().startsWith('data: ') && buffer.trim() !== 'data: [DONE]') {
+    if (buffer.trim() && buffer.trim() !== 'data: [DONE]' && buffer.trim().startsWith('data: ')) {
       try {
         const json = JSON.parse(buffer.trim().slice(6));
         const chunk = json.choices?.[0]?.delta?.content ?? '';
@@ -103,7 +177,7 @@ export async function streamAIResponse(
       } catch {}
     }
   } else {
-    // Fallback: full response
+    // Fallback: full response (non-streaming environments)
     const text = await response.text();
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
@@ -120,6 +194,6 @@ export async function streamAIResponse(
 }
 
 export const STARTER_MESSAGES = {
-  en: "Selam, I'm your Digital Twin — powered by GPT-5.1. I can help with anything: trading, coding, writing, math, translation, or life advice. What are we building today?",
-  am: "ሰላም! እኔ ዲጂታል ትዊን ነኝ — GPT-5.1 ሃይል። ንግድ፣ ኮድ፣ ጽሑፍ፣ ሒሳብ፣ ትርጉም ወይም የሕይወት ምክር — ሁሉንም እችላለሁ። ዛሬ ምን እንሠራ?",
+  en: "Selam! I'm your Digital Twin — powered by GPT-5.1, Grok-3, Gemini and more.\n\nI can handle **anything**:\n• 💻 Code in any language\n• 📊 XAUUSD & forex trading analysis\n• ✍️ Essays, CVs, creative writing\n• 🔢 Math step-by-step\n• 🌍 Translation (Amharic ↔ English ↔ any language)\n• 🏦 Prop firm strategies\n• 🎨 Photo editing & style advice\n• 🎙️ Voice-to-voice hands-free mode\n\nTap the mic for voice, or type anything. What are we doing today?",
+  am: "ሰላም! እኔ ዲጂታል ትዊን ነኝ — GPT-5.1፣ Grok-3፣ Gemini ሃይል።\n\nሁሉንም ማድረግ እችላለሁ:\n• 💻 ማናቸውም ቋንቋ ኮድ\n• 📊 XAUUSD ትንተና\n• ✍️ ጽሑፍ፣ CV፣ ፈጠራ\n• 🔢 ሒሳብ ደረጃ በደረጃ\n• 🌍 ትርጉም (አማርኛ ↔ እንግሊዝኛ)\n• 🎙️ ድምጽ-ወደ-ድምጽ ሃንድስ ፍሪ ሁነታ\n\nለድምጽ ማይክ ይጫኑ ወይም ይጻፉ። ዛሬ ምን እናድርግ?",
 };

@@ -1,13 +1,16 @@
-// Powered by OnSpace.AI — Voice Service
+// Powered by OnSpace.AI — Voice Service v3.0 (Hands-Free Fixed)
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
+import * as FileSystem from 'expo-file-system';
 import { getSupabaseClient } from '@/template';
 
 let recording: Audio.Recording | null = null;
 
 export async function startRecording(): Promise<void> {
   try {
-    await Audio.requestPermissionsAsync();
+    const perm = await Audio.requestPermissionsAsync();
+    if (perm.status !== 'granted') throw new Error('Microphone permission denied');
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
@@ -33,20 +36,12 @@ export async function stopRecording(): Promise<string | null> {
 
     if (!uri) return null;
 
-    // Read the file and convert to base64
-    const response = await fetch(uri);
-    const blob = await response.blob();
-
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        resolve(base64);
-      };
-      reader.onerror = () => reject(null);
-      reader.readAsDataURL(blob);
+    // ✅ Use expo-file-system instead of FileReader (works on native)
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
-  } catch (err) {
+    return base64;
+  } catch {
     recording = null;
     return null;
   }
@@ -58,6 +53,7 @@ export async function cancelRecording(): Promise<void> {
     await recording.stopAndUnloadAsync();
   } catch {}
   recording = null;
+  await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
 }
 
 /**
@@ -96,9 +92,13 @@ export async function transcribeAudio(audioBase64: string, language: 'en' | 'am'
 
 // ── Text-to-Speech ──────────────────────────────────────────────────────────
 
-let isSpeaking = false;
+let _isSpeaking = false;
 
-export function speakText(text: string, language: 'en' | 'am', onDone?: () => void): void {
+export function speakText(
+  text: string,
+  language: 'en' | 'am',
+  onDone?: () => void
+): void {
   Speech.stop();
 
   // Strip markdown for cleaner speech
@@ -113,28 +113,28 @@ export function speakText(text: string, language: 'en' | 'am', onDone?: () => vo
     .replace(/\n/g, ' ')
     .trim();
 
-  // Limit to first 500 chars for long responses
-  const capped = clean.length > 500 ? clean.slice(0, 500) + '...' : clean;
+  // Limit to first 600 chars
+  const capped = clean.length > 600 ? clean.slice(0, 600) + '...' : clean;
 
-  isSpeaking = true;
+  _isSpeaking = true;
   Speech.speak(capped, {
     language: language === 'am' ? 'am-ET' : 'en-US',
     rate: 0.95,
     pitch: 1.0,
     onDone: () => {
-      isSpeaking = false;
+      _isSpeaking = false;
       onDone?.();
     },
-    onStopped: () => { isSpeaking = false; },
-    onError: () => { isSpeaking = false; },
+    onStopped: () => { _isSpeaking = false; onDone?.(); },
+    onError: () => { _isSpeaking = false; onDone?.(); },
   });
 }
 
 export function stopSpeaking(): void {
   Speech.stop();
-  isSpeaking = false;
+  _isSpeaking = false;
 }
 
 export function getIsSpeaking(): boolean {
-  return isSpeaking;
+  return _isSpeaking;
 }
